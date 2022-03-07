@@ -8,7 +8,7 @@ require('chai')
     .should()
 
 
-contract('Token', ([deployer, sender, receiver]) => {
+contract('Token', ([deployer, sender, receiver, exchange]) => {
     const name = "Tak Token";
     const symbol = "TK";
     const decimals = '18';
@@ -74,14 +74,117 @@ contract('Token', ([deployer, sender, receiver]) => {
             it('rejects insufficient balance', async () => {
                 let invalidAmount;
                 invalidAmount = tokens(10000000) //100 million - greate than total supply
-                await token.transfer(receiver, invalidAmount, {from : deployer}).should.be.rejectedWith(EVM_REVERT);
+                await token.transfer(receiver, invalidAmount, {
+                    from: deployer
+                }).should.be.rejectedWith(EVM_REVERT);
 
                 invalidAmount = tokens(10) //100 million - greate than total supply
-                await token.transfer(deployer, invalidAmount, {from : receiver}).should.be.rejectedWith(EVM_REVERT);
-            } )
+                await token.transfer(deployer, invalidAmount, {
+                    from: receiver
+                }).should.be.rejectedWith(EVM_REVERT);
+            })
             it('rejects invalid recepients', async () => {
-                await token.transfer(0x0, amount,{from:deployer}).should.be.rejected
+                await token.transfer(0x0, amount, {
+                    from: deployer
+                }).should.be.rejected
             })
         })
     })
+    describe("approving tokens", () => {
+        let result;
+        let amount;
+        beforeEach(async () => {
+            amount = tokens(100)
+            result = await token.approve(exchange, amount, {
+                from: deployer
+            })
+        })
+        describe('success', () => {
+            it("allocates an allownce for delagated token spending on exchange", async () => {
+                const allownce = await token.allownce(deployer, exchange)
+                allownce.toString().should.equal(amount.toString())
+            })
+            it("emits Approval  events", async () => {
+                const log = result.logs[0];
+                log.event.should.eq("Approval")
+                const event = log.args
+                event.owner.toString().should.equal(deployer, "owner is correct")
+                event.spender.should.equal(exchange, "to is correct")
+                event.value.toString().should.equal(amount.toString(), 'value is correct')
+            })
+        })
+        describe('failure', () => {
+            it('rejects invalid spenders', async () => {
+                await token.approve(0x0, amount, {
+                    from: deployer
+                }).should.be.rejected
+            })
+        })
+    })
+
+
+
+
+
+
+
+
+
+
+    describe('delegated token tranfer', () => {
+        let result
+        let amount
+
+        beforeEach(async () => {
+            amount = tokens(100);
+            await token.approve(exchange, amount, {
+                from: deployer
+            })
+        })
+        describe("success", async () => {
+            beforeEach(async () => {
+                // Transfer
+                result = await token.transferFrom(deployer, receiver, amount, {
+                    from: exchange
+                })
+            })
+            it("transfer token balances", async () => {
+                let balanceOf;
+
+                balanceOf = await token.balanceOf(deployer)
+                balanceOf.toString().should.equal(tokens(999900).toString())
+                balanceOf = await token.balanceOf(receiver)
+                balanceOf.toString().should.equal(tokens(100).toString())
+
+            })
+            it("resets the allownce", async () => {
+                const allownce = await token.allownce(deployer, exchange)
+                allownce.toString().should.equal('0')
+            })
+            it("emits tranfer events", async () => {
+                const log = result.logs[0];
+                log.event.should.eq("Transfer")
+                const event = log.args
+                event.from.toString().should.equal(deployer, "from is correct")
+                event.to.should.equal(receiver, "to is correct")
+                event.value.toString().should.equal(amount.toString(), 'value is correct')
+            })
+        })
+        describe("failue", async () => {
+            it('rejects insufficient amounts', async () => {
+                const invalidAmount = tokens(10000000) //100 million - greate than total supply
+                await token.transferFrom(deployer, receiver, invalidAmount, {
+                    from: exchange
+                }).should.be.rejectedWith(EVM_REVERT);
+
+
+            })
+            it('rejects invalid recepients', async () => {
+                await token.transferFrom(deployer, 0x0, amount, {
+                    from: exchange
+                }).should.be.rejected
+            })
+        })
+    })
+
 })
